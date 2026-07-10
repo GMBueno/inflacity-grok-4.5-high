@@ -1,6 +1,8 @@
 import { defineConfig } from 'vite';
 
-export default defineConfig({
+// Project site: https://gmbueno.github.io/inflacity-grok-4.5-high/
+export default defineConfig(({ command }) => ({
+  base: command === 'build' ? '/inflacity-grok-4.5-high/' : '/',
   root: '.',
   publicDir: 'public',
   server: {
@@ -12,4 +14,4 @@ export default defineConfig({
     outDir: 'dist',
     sourcemap: true,
   },
-});
+}));

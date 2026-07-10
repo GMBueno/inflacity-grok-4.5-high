@@ -20,6 +20,12 @@ npm run build
 npm run preview
 ```
 
+## Deploy (GitHub Pages)
+
+O workflow `.github/workflows/deploy.yml` faz build e publica em Pages a cada push em `main` (source: **GitHub Actions**).
+
+URL: https://gmbueno.github.io/inflacity-grok-4.5-high/
+
 Regenerar o JSON a partir dos CSVs SIDRA:
 
 ```bash

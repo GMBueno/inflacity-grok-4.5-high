@@ -78,7 +78,7 @@ const state = {
 // ─── Load data & build world ─────────────────────────────────
 async function init() {
   setLoad(0.1);
-  const res = await fetch('/data/ipca.json');
+  const res = await fetch(`${import.meta.env.BASE_URL}data/ipca.json`);
   state.data = await res.json();
   setLoad(0.25);
 
