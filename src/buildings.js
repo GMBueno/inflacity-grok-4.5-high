@@ -3,23 +3,22 @@ import { getTheme, FLOOR_HEIGHT, BUILDING_FOOTPRINT, BLOCK_SPACING } from './the
 import { WORLD, terrainHeight } from './world/terrain.js';
 import { lerp } from './utils.js';
 
+/** Base floors at 0% variation; +1 floor per +10% (no max height). */
+export const BASE_FLOORS = 10;
+export const PCT_PER_FLOOR = 10;
+
 /**
- * Building heights:
- * - cumulative: ~1 floor per 8% since base (generous 0.8u/floor)
- * - rolling12: ~1 floor per 0.45%
+ * floors = 10 + pct/10
+ * 0% → 10 andares, 10% → 11, 100% → 20, sem teto máximo.
  */
-export function valueToFloors(value, mode) {
-  if (value == null || Number.isNaN(value)) return 1;
-  const abs = Math.abs(value);
-  if (mode === 'rolling12') {
-    return Math.max(1, Math.min(80, abs / 0.45));
-  }
-  // cumulative from base
-  return Math.max(1, Math.min(120, abs / 8));
+export function valueToFloors(value, _mode) {
+  if (value == null || Number.isNaN(value)) return BASE_FLOORS;
+  return BASE_FLOORS + value / PCT_PER_FLOOR;
 }
 
 export function floorsToHeight(floors) {
-  return Math.max(FLOOR_HEIGHT * 1.2, floors * FLOOR_HEIGHT);
+  // allow sub-base for deflation, but keep a tiny visible stub
+  return Math.max(FLOOR_HEIGHT * 0.5, floors * FLOOR_HEIGHT);
 }
 
 /**
@@ -112,13 +111,15 @@ export class Building {
     this.group.name = data.name;
 
     this.footprint = opts.footprint || BUILDING_FOOTPRINT;
-    this.currentHeight = FLOOR_HEIGHT * 2;
+    this.floors = BASE_FLOORS;
+    this.currentHeight = floorsToHeight(BASE_FLOORS);
     this.targetHeight = this.currentHeight;
-    this.floors = 2;
     this.mode = 'cumulative';
     this.monthIndex = 0;
     this.selected = false;
     this.hovered = false;
+    this.value = 0;
+    this._needsHeightUpdate = true;
 
     this._buildBase();
     this._buildBody();
@@ -204,7 +205,9 @@ export class Building {
     const f = this.footprint;
     const h = this.currentHeight;
 
-    const tex = makeWindowTexture(t, false);
+    // Clone cached textures so each building can set its own UV repeat
+    const tex = makeWindowTexture(t, false).clone();
+    tex.needsUpdate = true;
     tex.repeat.set(1, Math.max(1, h / (FLOOR_HEIGHT * 4)));
 
     const mat = new THREE.MeshStandardMaterial({
@@ -225,7 +228,8 @@ export class Building {
     this.bodyMesh = body;
     this.bodyMat = mat;
     this.dayTex = tex;
-    this.nightTex = makeNightWindowTexture(t);
+    this.nightTex = makeNightWindowTexture(t).clone();
+    this.nightTex.needsUpdate = true;
 
     // corner pillars
     const pillarMat = new THREE.MeshStandardMaterial({
@@ -259,23 +263,29 @@ export class Building {
     });
   }
 
-  _rebuildLedges(h) {
-    // remove old
-    this.ledges.forEach((l) => this.group.remove(l));
-    this.ledges = [];
+  _ensureLedges() {
+    if (this.ledges.length) return;
     const f = this.footprint;
-    const floors = Math.max(1, Math.round(h / FLOOR_HEIGHT));
-    const step = Math.max(2, Math.floor(floors / 8));
-    for (let fl = step; fl < floors; fl += step) {
-      const y = 0.28 + fl * FLOOR_HEIGHT;
-      if (y >= 0.28 + h - 0.3) break;
+    // Fixed set of 4 ledges, repositioned by height (no per-frame mesh thrash)
+    for (let i = 0; i < 4; i++) {
       const ledge = new THREE.Mesh(
         new THREE.BoxGeometry(f + 0.25, 0.1, f + 0.25),
         this.ledgeMat,
       );
-      ledge.position.y = y;
+      ledge.castShadow = false;
+      ledge.receiveShadow = false;
       this.group.add(ledge);
       this.ledges.push(ledge);
+    }
+  }
+
+  _placeLedges(h) {
+    this._ensureLedges();
+    // space ledges evenly along the shaft
+    for (let i = 0; i < this.ledges.length; i++) {
+      const t = (i + 1) / (this.ledges.length + 1);
+      this.ledges[i].position.y = 0.28 + h * t;
+      this.ledges[i].visible = h > FLOOR_HEIGHT * 4;
     }
   }
 
@@ -394,10 +404,6 @@ export class Building {
       s2.position.set(-0.15, 0.35, 0);
       s2.rotation.z = -0.4;
       bolt.add(s1, s2);
-      // glow light
-      const light = new THREE.PointLight(t.accent, 0.8, 10, 2);
-      light.position.y = 1;
-      bolt.add(light);
       this.propGroup.add(bolt);
     } else if (prop === 'pump') {
       // gas pump
@@ -560,24 +566,22 @@ export class Building {
         }
       }
     }
-    this.value = value;
-    this.floors = valueToFloors(value ?? 0, mode);
-    // cheaper (negative) buildings stay short but visible
-    if (value != null && value < 0) {
-      this.floors = Math.max(1, Math.min(8, Math.abs(value) / (mode === 'rolling12' ? 0.8 : 12)));
-    }
+    this.value = value ?? 0;
+    this.floors = valueToFloors(this.value, mode);
     this.targetHeight = floorsToHeight(this.floors);
     this.monthlyValue = this.data.monthly[monthIndex];
+    this._needsHeightUpdate = true;
   }
 
   update(dt) {
-    // smooth height animation
-    const k = 1 - Math.exp(-dt * 4.5);
-    const prev = this.currentHeight;
-    this.currentHeight = lerp(this.currentHeight, this.targetHeight, k);
-    if (Math.abs(this.currentHeight - prev) < 0.001 && Math.abs(this.currentHeight - this.targetHeight) < 0.01) {
-      this.currentHeight = this.targetHeight;
+    if (!this._needsHeightUpdate && Math.abs(this.currentHeight - this.targetHeight) < 0.01) {
       return;
+    }
+    const k = 1 - Math.exp(-dt * 4.5);
+    this.currentHeight = lerp(this.currentHeight, this.targetHeight, k);
+    if (Math.abs(this.currentHeight - this.targetHeight) < 0.01) {
+      this.currentHeight = this.targetHeight;
+      this._needsHeightUpdate = false;
     }
     this._applyHeight(this.currentHeight);
   }
@@ -602,7 +606,7 @@ export class Building {
     const body = new THREE.Mesh(new THREE.BoxGeometry(f, 1, f), mat);
     body.position.y = 0.28 + 0.5;
     body.castShadow = true;
-    body.receiveShadow = true;
+    body.receiveShadow = false;
     body.userData.building = this;
     this.group.add(body);
     this.bodyMesh = body;
@@ -628,30 +632,26 @@ export class Building {
     ]) {
       const p = new THREE.Mesh(new THREE.BoxGeometry(pw, 1, pw), pillarMat);
       p.position.set(sx * (f * 0.5 - 0.05), 0.28 + 0.5, sz * (f * 0.5 - 0.05));
-      p.castShadow = true;
+      p.castShadow = false;
       this.group.add(p);
       this.pillars.push(p);
     }
 
     this._applyHeight = (h) => {
-      const yScale = Math.max(0.5, h);
+      const yScale = Math.max(0.4, h);
       this.bodyMesh.scale.y = yScale;
       this.bodyMesh.position.y = 0.28 + yScale / 2;
-      this.pillars.forEach((p) => {
+      for (let i = 0; i < this.pillars.length; i++) {
+        const p = this.pillars[i];
         p.scale.y = yScale;
         p.position.y = 0.28 + yScale / 2;
-      });
-      // window texture repeat
+      }
+      // window texture repeat tracks floors (shared textures — set once per apply)
       if (this.bodyMat.map) {
-        this.bodyMat.map.repeat.set(1, Math.max(0.5, h / (FLOOR_HEIGHT * 3.5)));
-        this.bodyMat.map.needsUpdate = true;
+        this.bodyMat.map.repeat.set(1, Math.max(1, h / (FLOOR_HEIGHT * 3.5)));
       }
       this._positionRoof(h);
-      // rebuild ledges less frequently
-      if (!this._lastLedgeH || Math.abs(this._lastLedgeH - h) > FLOOR_HEIGHT * 1.5) {
-        this._rebuildLedges(h);
-        this._lastLedgeH = h;
-      }
+      this._placeLedges(h);
     };
 
     this._applyHeight(this.currentHeight);

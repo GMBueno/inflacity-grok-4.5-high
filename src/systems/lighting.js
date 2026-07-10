@@ -79,15 +79,16 @@ export class LightingSystem {
     this.sun = new THREE.DirectionalLight(0xfff4e0, 1.8);
     this.sun.position.set(-40, 80, 30);
     this.sun.castShadow = true;
-    this.sun.shadow.mapSize.set(2048, 2048);
+    this.sun.shadow.mapSize.set(1024, 1024);
     this.sun.shadow.camera.near = 1;
-    this.sun.shadow.camera.far = 280;
-    this.sun.shadow.camera.left = -120;
-    this.sun.shadow.camera.right = 120;
-    this.sun.shadow.camera.top = 120;
-    this.sun.shadow.camera.bottom = -120;
-    this.sun.shadow.bias = -0.00025;
-    this.sun.shadow.normalBias = 0.03;
+    this.sun.shadow.camera.far = 220;
+    this.sun.shadow.camera.left = -90;
+    this.sun.shadow.camera.right = 90;
+    this.sun.shadow.camera.top = 90;
+    this.sun.shadow.camera.bottom = -90;
+    this.sun.shadow.bias = -0.0003;
+    this.sun.shadow.normalBias = 0.04;
+    this.sun.shadow.autoUpdate = true;
     scene.add(this.sun);
     scene.add(this.sun.target);
 
@@ -284,13 +285,22 @@ export class LightingSystem {
   }
 }
 
-export function updateStreetLights(scene, intensity) {
-  scene.traverse((obj) => {
-    if (obj.userData?.isStreetLight) {
-      obj.intensity = intensity * 1.2;
-    }
-    if (obj.userData?.isLamp && obj.material) {
-      obj.material.emissiveIntensity = 0.2 + intensity * 1.5;
-    }
-  });
+/** Cheap lamp update — shared material, only when intensity changes. */
+let _lastStreetIntensity = -1;
+export function updateStreetLights(_scene, intensity) {
+  if (Math.abs(intensity - _lastStreetIntensity) < 0.02) return;
+  _lastStreetIntensity = intensity;
+  // Single shared bulb material (all lamps share LAMP_BULB_MAT via createLamp)
+  // Import would cycle — set via scene search of first lamp, or global intensity on shared mat.
+  // The shared material is in terrain.js; we update emissive here through a soft lookup once.
+  if (!updateStreetLights._mat) {
+    _scene.traverse((obj) => {
+      if (obj.userData?.isLamp && obj.material) {
+        updateStreetLights._mat = obj.material;
+      }
+    });
+  }
+  if (updateStreetLights._mat) {
+    updateStreetLights._mat.emissiveIntensity = 0.25 + intensity * 1.6;
+  }
 }

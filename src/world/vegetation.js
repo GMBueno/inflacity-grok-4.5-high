@@ -10,7 +10,7 @@ export function createVegetation(scene) {
 
   // Shared geometries
   const trunkGeo = new THREE.CylinderGeometry(0.12, 0.22, 1.4, 6);
-  const canopyGeo = new THREE.IcosahedronGeometry(1, 1);
+  const canopyGeo = new THREE.IcosahedronGeometry(1, 0);
   const bushGeo = new THREE.IcosahedronGeometry(0.55, 0);
   const pineTrunk = new THREE.CylinderGeometry(0.1, 0.18, 1.8, 6);
   const pineCanopy = new THREE.ConeGeometry(0.85, 2.2, 7);
@@ -40,7 +40,7 @@ export function createVegetation(scene) {
   const bushes = [];
   const pines = [];
 
-  for (let i = 0; i < 900; i++) {
+  for (let i = 0; i < 420; i++) {
     const x = (rand() - 0.5) * WORLD.size * 0.92;
     const z = (rand() - 0.5) * WORLD.size * 0.92;
     const river = riverField(x, z);
@@ -89,12 +89,13 @@ export function createVegetation(scene) {
 
   // Instanced deciduous trees
   const trunkInst = new THREE.InstancedMesh(trunkGeo, trunkMat, trees.length);
-  trunkInst.castShadow = true;
+  trunkInst.castShadow = false;
   trunkInst.receiveShadow = true;
   const canopyInsts = leafMats.map(
     (m) => {
       const im = new THREE.InstancedMesh(canopyGeo, m, trees.length);
-      im.castShadow = true;
+      im.castShadow = true; // canopies only — main soft shadow mass
+      im.receiveShadow = false;
       im.count = 0;
       return im;
     },
@@ -182,7 +183,7 @@ export function createVegetation(scene) {
       emissive: c,
       emissiveIntensity: 0.08,
     });
-    const count = 80;
+    const count = 36;
     const inst = new THREE.InstancedMesh(flowerGeo, mat, count);
     let n = 0;
     for (let i = 0; i < count * 3 && n < count; i++) {
@@ -224,12 +225,12 @@ export function createClouds(scene) {
   });
   const geo = new THREE.SphereGeometry(1, 8, 6);
 
-  for (let i = 0; i < 28; i++) {
+  for (let i = 0; i < 14; i++) {
     const cloud = new THREE.Group();
     const cx = (rand() - 0.5) * 220;
     const cz = (rand() - 0.5) * 220;
     const cy = 28 + rand() * 18;
-    const blobs = 3 + ((rand() * 4) | 0);
+    const blobs = 2 + ((rand() * 2) | 0);
     for (let b = 0; b < blobs; b++) {
       const m = new THREE.Mesh(geo, mat);
       m.position.set((rand() - 0.5) * 6, (rand() - 0.5) * 1.5, (rand() - 0.5) * 4);

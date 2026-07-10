@@ -15,6 +15,13 @@ import { GameCamera } from './systems/camera.js';
 import { LightingSystem, updateStreetLights } from './systems/lighting.js';
 import { formatMonth, formatPct } from './utils.js';
 
+function formatFloors(n) {
+  if (n == null || Number.isNaN(n)) return '—';
+  // show one decimal when not near-integer (e.g. 11.5)
+  const r = Math.round(n * 10) / 10;
+  return Number.isInteger(r) ? String(r) : r.toFixed(1);
+}
+
 // ─── Bootstrap ───────────────────────────────────────────────
 const canvas = document.getElementById('c');
 const loaderEl = document.getElementById('loader');
@@ -29,14 +36,19 @@ const renderer = new THREE.WebGLRenderer({
   antialias: true,
   powerPreference: 'high-performance',
   alpha: false,
+  stencil: false,
+  depth: true,
 });
-renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+// Cap DPR for stable 60fps on retina
+renderer.setPixelRatio(Math.min(window.devicePixelRatio, 1.5));
 renderer.setSize(window.innerWidth, window.innerHeight);
 renderer.shadowMap.enabled = true;
-renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+renderer.shadowMap.type = THREE.PCFShadowMap; // cheaper than PCFSoft
 renderer.toneMapping = THREE.ACESFilmicToneMapping;
 renderer.toneMappingExposure = 1.05;
 renderer.outputColorSpace = THREE.SRGBColorSpace;
+// Don't auto-clear unnecessarily
+renderer.info.autoReset = true;
 
 const scene = new THREE.Scene();
 scene.background = new THREE.Color(0x87b0d0);
@@ -98,12 +110,19 @@ async function init() {
     loaderEl.classList.add('done');
   });
 
-  // Start loop
+  // Start loop — target ~60fps
   let last = performance.now();
+  let streetLightCached = -1;
   function frame(now) {
     const dt = Math.min(0.05, (now - last) / 1000);
     last = now;
     update(dt);
+    // Street lights only when intensity bucket changes
+    const li = lighting.streetLightIntensity || 0;
+    if (Math.abs(li - streetLightCached) > 0.03) {
+      streetLightCached = li;
+      updateStreetLights(scene, li);
+    }
     renderer.render(scene, camera);
     requestAnimationFrame(frame);
   }
@@ -295,7 +314,7 @@ function showTooltip(b, x, y) {
   const neg = v != null && v < 0;
   tooltip.innerHTML = `
     <div class="t-name">${b.data.name}</div>
-    <div class="t-pct${neg ? ' neg' : ''}">${formatPct(v)} · ${Math.round(b.floors)} andares</div>
+    <div class="t-pct${neg ? ' neg' : ''}">${formatPct(v)} · ${formatFloors(b.floors)} andares</div>
   `;
   tooltip.classList.remove('hidden');
   const pad = 16;
@@ -333,7 +352,7 @@ function showCard(b) {
   const pctEl = document.getElementById('card-pct');
   pctEl.textContent = formatPct(v);
   pctEl.classList.toggle('neg', neg);
-  document.getElementById('card-floors').textContent = `${Math.round(b.floors)}`;
+  document.getElementById('card-floors').textContent = formatFloors(b.floors);
   document.getElementById('card-range').textContent =
     `${formatMonth(months[firstIdx])} → ${formatMonth(months[state.monthIndex])}`;
   document.getElementById('card-last').textContent = formatPct(monthly);
@@ -365,11 +384,12 @@ function update(dt) {
   elapsed += dt;
   gameCam.update(dt);
   lighting.update(dt);
-  updateStreetLights(scene, lighting.streetLightIntensity || 0);
   updateClouds(clouds(), dt);
-  updateWater(state.water, elapsed);
+  // water bob every other frame-ish is fine; keep cheap
+  if ((elapsed * 60 | 0) % 2 === 0) updateWater(state.water, elapsed);
   updateWorldDetails(state.details, dt, elapsed, lighting.isNight);
-  state.buildings.forEach((b) => b.update(dt));
+  const buildings = state.buildings;
+  for (let i = 0; i < buildings.length; i++) buildings[i].update(dt);
 }
 
 // ─── Go ──────────────────────────────────────────────────────

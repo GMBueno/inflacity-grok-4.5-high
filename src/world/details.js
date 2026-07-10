@@ -24,7 +24,7 @@ export function createWorldDetails(scene) {
     flatShading: true,
   });
   const rocks = [];
-  for (let i = 0; i < 220; i++) {
+  for (let i = 0; i < 100; i++) {
     const x = (rand() - 0.5) * WORLD.size * 0.9;
     const z = (rand() - 0.5) * WORLD.size * 0.9;
     const river = riverField(x, z);
@@ -66,7 +66,7 @@ export function createWorldDetails(scene) {
   const reedTopGeo = new THREE.SphereGeometry(0.08, 5, 4);
   const reedTopMat = new THREE.MeshStandardMaterial({ color: 0x6b4423, roughness: 0.85 });
   const reedPositions = [];
-  for (let i = 0; i < 350; i++) {
+  for (let i = 0; i < 140; i++) {
     const x = (rand() - 0.5) * 200;
     const z = (rand() - 0.5) * 200;
     const river = riverField(x, z);
@@ -160,16 +160,14 @@ export function createWorldDetails(scene) {
       new THREE.MeshStandardMaterial({
         color,
         emissive: color,
-        emissiveIntensity: 0.4,
+        emissiveIntensity: 0.55,
         metalness: 0.3,
         roughness: 0.4,
       }),
     );
     orb.position.y = 5.1;
-    const light = new THREE.PointLight(color, 0.6, 16, 2);
-    light.position.y = 5.1;
-    light.userData.isStreetLight = true;
-    g.add(base, pillar, orb, light);
+    // No PointLight — emissive orb is enough for look without FPS cost
+    g.add(base, pillar, orb);
     g.position.set(x, Math.max(0, terrainHeight(x, z)), z);
     return g;
   }
@@ -194,7 +192,7 @@ export function createWorldDetails(scene) {
   }
 
   // ── Fireflies for night (points, opacity controlled externally) ──
-  const flyCount = 120;
+  const flyCount = 60;
   const flyPos = new Float32Array(flyCount * 3);
   for (let i = 0; i < flyCount; i++) {
     flyPos[i * 3] = (rand() - 0.5) * 120;
@@ -244,19 +242,12 @@ export function updateWorldDetails(group, dt, t, isNight) {
     });
   }
 
-  // Fireflies
+  // Fireflies — opacity only (no per-vertex rewrite every frame)
   const flies = group.getObjectByName('fireflies');
   if (flies) {
     flies.material.opacity = isNight ? 0.85 : 0;
     if (isNight) {
-      const pos = flies.geometry.attributes.position;
-      const base = flies.userData.base;
-      for (let i = 0; i < pos.count; i++) {
-        pos.setX(i, base[i * 3] + Math.sin(t * 1.3 + i) * 0.8);
-        pos.setY(i, base[i * 3 + 1] + Math.sin(t * 2.1 + i * 0.7) * 0.5);
-        pos.setZ(i, base[i * 3 + 2] + Math.cos(t * 1.1 + i * 0.5) * 0.8);
-      }
-      pos.needsUpdate = true;
+      flies.rotation.y = t * 0.08;
     }
   }
 }

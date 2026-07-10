@@ -110,7 +110,7 @@ function lerp(a, b, t) {
 
 export function createTerrain(scene) {
   const size = WORLD.size;
-  const segs = 180;
+  const segs = 112;
   const geo = new THREE.PlaneGeometry(size, size, segs, segs);
   geo.rotateX(-Math.PI / 2);
 
@@ -254,7 +254,7 @@ export function createWater(scene) {
   group.name = 'water';
 
   // Build a continuous water mesh from river-distance field samples
-  const step = 1.6;
+  const step = 2.4;
   const verts = [];
   const cols = [];
   const indices = [];
@@ -310,15 +310,13 @@ export function createWater(scene) {
   geo.setIndex(indices);
   geo.computeVertexNormals();
 
-  const mat = new THREE.MeshPhysicalMaterial({
+  // StandardMaterial is far cheaper than Physical+transmission
+  const mat = new THREE.MeshStandardMaterial({
     vertexColors: true,
-    roughness: 0.18,
-    metalness: 0.08,
-    transmission: 0.35,
-    thickness: 1.5,
+    roughness: 0.22,
+    metalness: 0.12,
     transparent: true,
-    opacity: 0.88,
-    ior: 1.33,
+    opacity: 0.82,
     side: THREE.DoubleSide,
     depthWrite: false,
   });
@@ -467,39 +465,38 @@ export function createBridge(scene) {
   return group;
 }
 
+// Shared lamp materials (avoid unique materials per lamp)
+const LAMP_POLE_MAT = new THREE.MeshStandardMaterial({ color: 0x374151, metalness: 0.5, roughness: 0.4 });
+const LAMP_BULB_MAT = new THREE.MeshStandardMaterial({
+  color: 0xfff7d6,
+  emissive: 0xffd78a,
+  emissiveIntensity: 0.6,
+  roughness: 0.3,
+});
+const LAMP_POLE_GEO = new THREE.CylinderGeometry(0.06, 0.08, 2.4, 5);
+const LAMP_ARM_GEO = new THREE.BoxGeometry(0.5, 0.06, 0.06);
+const LAMP_BULB_GEO = new THREE.SphereGeometry(0.16, 6, 6);
+
+/** Registry of bulb materials/meshes for cheap night updates (no PointLights). */
+export const streetLampBulbs = [];
+
 export function createLamp(parent, x, y, z) {
-  const pole = new THREE.Mesh(
-    new THREE.CylinderGeometry(0.06, 0.08, 2.4, 6),
-    new THREE.MeshStandardMaterial({ color: 0x374151, metalness: 0.5, roughness: 0.4 }),
-  );
+  const pole = new THREE.Mesh(LAMP_POLE_GEO, LAMP_POLE_MAT);
   pole.position.set(x, y + 1.2, z);
-  pole.castShadow = true;
+  pole.castShadow = false;
   parent.add(pole);
 
-  const arm = new THREE.Mesh(
-    new THREE.BoxGeometry(0.5, 0.06, 0.06),
-    new THREE.MeshStandardMaterial({ color: 0x374151, metalness: 0.5, roughness: 0.4 }),
-  );
+  const arm = new THREE.Mesh(LAMP_ARM_GEO, LAMP_POLE_MAT);
   arm.position.set(x + 0.15, y + 2.3, z);
   parent.add(arm);
 
-  const lamp = new THREE.Mesh(
-    new THREE.SphereGeometry(0.16, 8, 8),
-    new THREE.MeshStandardMaterial({
-      color: 0xfff7d6,
-      emissive: 0xffd78a,
-      emissiveIntensity: 0.6,
-      roughness: 0.3,
-    }),
-  );
+  // Unique material clone only for emissive intensity control — use shared + track meshes
+  const lamp = new THREE.Mesh(LAMP_BULB_GEO, LAMP_BULB_MAT);
   lamp.position.set(x + 0.35, y + 2.2, z);
   lamp.userData.isLamp = true;
   parent.add(lamp);
-
-  const light = new THREE.PointLight(0xffd78a, 0, 12, 2);
-  light.position.set(x + 0.35, y + 2.15, z);
-  light.userData.isStreetLight = true;
-  parent.add(light);
+  streetLampBulbs.push(lamp);
+  // No PointLight — dozens of lights destroy FPS; emissive + sun/moon is enough
 }
 
 /** Roads grid inside city footprints */
@@ -526,6 +523,8 @@ export function createRoads(scene) {
   });
   const curbMat = new THREE.MeshStandardMaterial({ color: 0xa8a29e, roughness: 0.88 });
 
+  const walkMat = new THREE.MeshStandardMaterial({ color: 0xb0a89c, roughness: 0.9 });
+
   function addRoadSegment(x1, z1, x2, z2, width = 3.2) {
     const dx = x2 - x1;
     const dz = z2 - z1;
@@ -540,9 +539,10 @@ export function createRoads(scene) {
     road.position.set(midX, y, midZ);
     road.rotation.y = angle;
     road.receiveShadow = true;
+    road.castShadow = false;
     group.add(road);
 
-    // curbs
+    // curbs (both sides)
     for (const side of [-1, 1]) {
       const curb = new THREE.Mesh(new THREE.BoxGeometry(0.25, 0.18, len + 0.2), curbMat);
       curb.position.set(
@@ -551,26 +551,21 @@ export function createRoads(scene) {
         midZ - Math.sin(angle) * side * (width * 0.5 + 0.1),
       );
       curb.rotation.y = angle;
+      curb.castShadow = false;
       group.add(curb);
     }
 
-    // center line dashes
-    const dashes = Math.floor(len / 2.4);
-    for (let i = 0; i < dashes; i++) {
-      const t = (i + 0.5) / dashes;
-      const lx = x1 + dx * t;
-      const lz = z1 + dz * t;
-      const dash = new THREE.Mesh(new THREE.BoxGeometry(0.12, 0.04, 1.0), yellowMat);
-      dash.position.set(lx, y + 0.07, lz);
-      dash.rotation.y = angle;
-      group.add(dash);
-    }
+    // single continuous center line (not N dash meshes)
+    const line = new THREE.Mesh(new THREE.BoxGeometry(0.12, 0.04, Math.max(0.5, len * 0.9)), yellowMat);
+    line.position.set(midX, y + 0.07, midZ);
+    line.rotation.y = angle;
+    group.add(line);
 
     // sidewalks
     for (const side of [-1, 1]) {
       const walk = new THREE.Mesh(
         new THREE.BoxGeometry(1.1, 0.08, len + 0.2),
-        new THREE.MeshStandardMaterial({ color: 0xb0a89c, roughness: 0.9 }),
+        walkMat,
       );
       walk.position.set(
         midX + Math.cos(angle) * side * (width * 0.5 + 0.85),
@@ -579,6 +574,7 @@ export function createRoads(scene) {
       );
       walk.rotation.y = angle;
       walk.receiveShadow = true;
+      walk.castShadow = false;
       group.add(walk);
     }
   }
@@ -629,7 +625,7 @@ export function createRoads(scene) {
         const n = Math.floor(len / 10);
         for (let i = 0; i <= n; i++) {
           const z = r[2] + ((r[3] - r[2]) * i) / Math.max(1, n);
-          if (cityMask(r[1], z, center, radius) > 0.4 && rand() > 0.35) {
+          if (cityMask(r[1], z, center, radius) > 0.4 && rand() > 0.62) {
             createLamp(group, r[1] + 2.2, 0.1, z);
           }
         }
@@ -671,11 +667,10 @@ export function createPark(scene) {
   // Pond (explicit visible lake)
   const pond = new THREE.Mesh(
     new THREE.CircleGeometry(3.2, 24),
-    new THREE.MeshPhysicalMaterial({
+    new THREE.MeshStandardMaterial({
       color: 0x2a9fb8,
-      roughness: 0.12,
-      transmission: 0.5,
-      thickness: 0.8,
+      roughness: 0.18,
+      metalness: 0.15,
       transparent: true,
       opacity: 0.88,
     }),
