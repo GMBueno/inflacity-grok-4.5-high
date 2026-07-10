@@ -130,16 +130,19 @@ def merge_series(*dicts):
     return out
 
 def compute_index(monthly_series, all_months):
+    """Price index: start at 100, then compound every monthly rate we have.
+
+    Base is the level *before* the first observation. Jul/2006's variation
+    (e.g. Tomate −18.66%) is applied like every other month — we use the full
+    history rather than pinning the first month to 100 and skipping its rate.
+    """
     idx = {}
     level = 100.0
     started = False
     for m in all_months:
         if m in monthly_series:
-            if not started:
-                started = True
-                level = 100.0 * (1 + monthly_series[m] / 100.0)
-            else:
-                level = level * (1 + monthly_series[m] / 100.0)
+            level = level * (1 + monthly_series[m] / 100.0)
+            started = True
             idx[m] = round(level, 4)
         elif started:
             idx[m] = round(level, 4)
