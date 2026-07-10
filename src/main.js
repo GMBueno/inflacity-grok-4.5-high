@@ -2,12 +2,14 @@ import * as THREE from 'three';
 import {
   createTerrain,
   createWater,
+  updateWater,
   createBridge,
   createRoads,
   createPark,
   WORLD,
 } from './world/terrain.js';
 import { createVegetation, createClouds, updateClouds } from './world/vegetation.js';
+import { createWorldDetails, updateWorldDetails } from './world/details.js';
 import { createBuildings } from './buildings.js';
 import { GameCamera } from './systems/camera.js';
 import { LightingSystem, updateStreetLights } from './systems/lighting.js';
@@ -70,13 +72,14 @@ async function init() {
 
   createTerrain(scene);
   setLoad(0.4);
-  createWater(scene);
+  state.water = createWater(scene);
   createBridge(scene);
   createRoads(scene);
   createPark(scene);
   setLoad(0.55);
   createVegetation(scene);
   createClouds(scene);
+  state.details = createWorldDetails(scene);
   setLoad(0.7);
 
   state.buildings = createBuildings(scene, state.data);
@@ -356,15 +359,17 @@ function onResize() {
 
 // ─── Update ──────────────────────────────────────────────────
 const clouds = () => scene.getObjectByName('clouds');
+let elapsed = 0;
 
 function update(dt) {
+  elapsed += dt;
   gameCam.update(dt);
   lighting.update(dt);
   updateStreetLights(scene, lighting.streetLightIntensity || 0);
   updateClouds(clouds(), dt);
+  updateWater(state.water, elapsed);
+  updateWorldDetails(state.details, dt, elapsed, lighting.isNight);
   state.buildings.forEach((b) => b.update(dt));
-
-  // gentle water shimmer via slight material pulse not needed every frame
 }
 
 // ─── Go ──────────────────────────────────────────────────────

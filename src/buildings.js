@@ -164,6 +164,39 @@ export class Building {
     );
     ring.position.y = 0.03;
     this.group.add(ring);
+
+    // entrance door + canopy
+    const door = new THREE.Mesh(
+      new THREE.BoxGeometry(f * 0.28, 1.15, 0.12),
+      new THREE.MeshStandardMaterial({ color: t.bodyDark, roughness: 0.7, metalness: 0.1 }),
+    );
+    door.position.set(0, 0.28 + 0.55, f * 0.5 + 0.05);
+    door.castShadow = true;
+    this.group.add(door);
+    const doorGlass = new THREE.Mesh(
+      new THREE.BoxGeometry(f * 0.18, 0.55, 0.06),
+      new THREE.MeshStandardMaterial({
+        color: t.windowLit,
+        emissive: t.windowLit,
+        emissiveIntensity: 0.12,
+        roughness: 0.25,
+        metalness: 0.2,
+      }),
+    );
+    doorGlass.position.set(0, 0.28 + 0.75, f * 0.5 + 0.1);
+    this.group.add(doorGlass);
+    const canopy = new THREE.Mesh(
+      new THREE.BoxGeometry(f * 0.5, 0.1, 0.55),
+      new THREE.MeshStandardMaterial({
+        color: t.accent,
+        roughness: 0.55,
+        emissive: t.accent,
+        emissiveIntensity: 0.08,
+      }),
+    );
+    canopy.position.set(0, 0.28 + 1.35, f * 0.5 + 0.2);
+    canopy.castShadow = true;
+    this.group.add(canopy);
   }
 
   _buildBody() {
@@ -488,7 +521,12 @@ export class Building {
 
   setNight(isNight) {
     if (!this.bodyMat) return;
-    this.bodyMat.map = isNight ? this.nightTex : this.dayTex;
+    const prev = this.bodyMat.map;
+    const next = isNight ? this.nightTex : this.dayTex;
+    if (prev && next) {
+      next.repeat.copy(prev.repeat);
+    }
+    this.bodyMat.map = next;
     this.bodyMat.needsUpdate = true;
     this.bodyMat.emissiveIntensity = isNight
       ? (this.theme.emissiveIntensity || 0) + 0.15

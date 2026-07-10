@@ -250,89 +250,122 @@ function createCliffSkirt(scene) {
 }
 
 export function createWater(scene) {
-  const size = WORLD.size;
-  const segs = 100;
-  const geo = new THREE.PlaneGeometry(size, size, segs, segs);
-  geo.rotateX(-Math.PI / 2);
+  const group = new THREE.Group();
+  group.name = 'water';
 
-  const pos = geo.attributes.position;
-  // Only keep vertices near water by setting y; we'll use a shader-like approach
-  // with a large plane and discard far via opacity - better: custom mesh of water cells
-  const waterMat = new THREE.MeshPhysicalMaterial({
-    color: 0x1a8fb5,
-    roughness: 0.15,
-    metalness: 0.05,
-    transmission: 0.45,
-    thickness: 1.2,
+  // Build a continuous water mesh from river-distance field samples
+  const step = 1.6;
+  const verts = [];
+  const cols = [];
+  const indices = [];
+  const grid = new Map();
+  const key = (ix, iz) => `${ix},${iz}`;
+
+  const minI = Math.floor(-WORLD.half / step);
+  const maxI = Math.ceil(WORLD.half / step);
+
+  // Collect water cells
+  const cells = [];
+  for (let ix = minI; ix <= maxI; ix++) {
+    for (let iz = minI; iz <= maxI; iz++) {
+      const x = ix * step;
+      const z = iz * step;
+      const d = riverField(x, z);
+      if (d < 2.4) cells.push([ix, iz, x, z, d]);
+    }
+  }
+
+  // Create vertices for each cell corner (shared)
+  function ensureVert(ix, iz) {
+    const k = key(ix, iz);
+    if (grid.has(k)) return grid.get(k);
+    const x = ix * step;
+    const z = iz * step;
+    const d = riverField(x, z);
+    const y = -0.32 + Math.min(0.15, Math.max(-0.2, -d * 0.04));
+    const idx = verts.length / 3;
+    verts.push(x, y, z);
+    // color: deeper = darker blue
+    const depth = smoothstep(2.5, -2, d);
+    const r = lerp(0.15, 0.05, depth);
+    const g = lerp(0.55, 0.28, depth);
+    const b = lerp(0.65, 0.42, depth);
+    cols.push(r, g, b);
+    grid.set(k, idx);
+    return idx;
+  }
+
+  for (const [ix, iz] of cells) {
+    // only create quad if cell center is water-ish
+    const a = ensureVert(ix, iz);
+    const b = ensureVert(ix + 1, iz);
+    const c = ensureVert(ix + 1, iz + 1);
+    const d = ensureVert(ix, iz + 1);
+    indices.push(a, b, c, a, c, d);
+  }
+
+  const geo = new THREE.BufferGeometry();
+  geo.setAttribute('position', new THREE.Float32BufferAttribute(verts, 3));
+  geo.setAttribute('color', new THREE.Float32BufferAttribute(cols, 3));
+  geo.setIndex(indices);
+  geo.computeVertexNormals();
+
+  const mat = new THREE.MeshPhysicalMaterial({
+    vertexColors: true,
+    roughness: 0.18,
+    metalness: 0.08,
+    transmission: 0.35,
+    thickness: 1.5,
     transparent: true,
-    opacity: 0.82,
+    opacity: 0.88,
     ior: 1.33,
     side: THREE.DoubleSide,
     depthWrite: false,
   });
 
-  // Build ribbon mesh along river using sampled points
-  const group = new THREE.Group();
-  group.name = 'water';
+  const mesh = new THREE.Mesh(geo, mat);
+  mesh.renderOrder = 1;
+  mesh.userData.waterMesh = true;
+  group.add(mesh);
 
-  // Dense sample grid for water surface patches
-  const patches = [];
-  const step = 2.2;
-  for (let x = -WORLD.half; x <= WORLD.half; x += step) {
-    for (let z = -WORLD.half; z <= WORLD.half; z += step) {
-      const d = riverField(x, z);
-      if (d < 1.2) {
-        patches.push(x, z, d);
-      }
-    }
-  }
-
-  const plane = new THREE.PlaneGeometry(step * 1.15, step * 1.15);
-  plane.rotateX(-Math.PI / 2);
-  const inst = new THREE.InstancedMesh(plane, waterMat, patches.length / 3);
-  inst.receiveShadow = false;
-  const dummy = new THREE.Object3D();
-  let idx = 0;
-  for (let i = 0; i < patches.length; i += 3) {
-    const x = patches[i];
-    const z = patches[i + 1];
-    const d = patches[i + 2];
-    dummy.position.set(x, -0.35 + Math.min(0, d) * 0.05, z);
-    const s = d < 0 ? 1.05 : 0.85;
-    dummy.scale.set(s, 1, s);
-    dummy.updateMatrix();
-    inst.setMatrixAt(idx++, dummy.matrix);
-  }
-  inst.instanceMatrix.needsUpdate = true;
-  group.add(inst);
-
-  // Slightly darker deeper water underlay
-  const deepMat = new THREE.MeshStandardMaterial({
-    color: 0x0c4a6e,
-    roughness: 0.6,
-    metalness: 0.1,
+  // Soft foam / edge strips
+  const foamMat = new THREE.MeshStandardMaterial({
+    color: 0xb8dce8,
     transparent: true,
-    opacity: 0.55,
+    opacity: 0.35,
+    roughness: 1,
     depthWrite: false,
   });
-  const deep = new THREE.InstancedMesh(plane, deepMat, Math.ceil(patches.length / 3));
-  idx = 0;
-  for (let i = 0; i < patches.length; i += 3) {
-    const x = patches[i];
-    const z = patches[i + 1];
-    const d = patches[i + 2];
-    if (d > 0.3) continue;
-    dummy.position.set(x, -0.55, z);
-    dummy.scale.set(1.1, 1, 1.1);
-    dummy.updateMatrix();
-    deep.setMatrixAt(idx++, dummy.matrix);
+  const foamPatches = [];
+  for (const [ix, iz, x, z, d] of cells) {
+    if (d > 0.2 && d < 2.0) foamPatches.push(x, z);
   }
-  deep.count = idx;
-  deep.instanceMatrix.needsUpdate = true;
-  group.add(deep);
+  if (foamPatches.length) {
+    const foamGeo = new THREE.PlaneGeometry(step * 1.1, step * 1.1);
+    foamGeo.rotateX(-Math.PI / 2);
+    const foam = new THREE.InstancedMesh(foamGeo, foamMat, foamPatches.length / 2);
+    const dummy = new THREE.Object3D();
+    for (let i = 0; i < foamPatches.length; i += 2) {
+      dummy.position.set(foamPatches[i], -0.22, foamPatches[i + 1]);
+      dummy.updateMatrix();
+      foam.setMatrixAt(i / 2, dummy.matrix);
+    }
+    foam.instanceMatrix.needsUpdate = true;
+    foam.renderOrder = 2;
+    group.add(foam);
+  }
 
   scene.add(group);
   return group;
+}
+
+/** Gentle water bob animation (cheap — skip normal recompute) */
+export function updateWater(group, t) {
+  if (!group) return;
+  const mesh = group.children.find((c) => c.userData.waterMesh);
+  if (!mesh) return;
+  // Bob whole mesh slightly for sparkle without per-vertex cost
+  mesh.position.y = Math.sin(t * 0.9) * 0.03;
 }
 
 export function createBridge(scene) {
