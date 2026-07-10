@@ -23,45 +23,168 @@ function formatFloors(n) {
 }
 
 // ─── Bootstrap ───────────────────────────────────────────────
-const canvas = document.getElementById('c');
+let canvas = document.getElementById('c');
 const loaderEl = document.getElementById('loader');
 const loaderFill = document.getElementById('loader-fill');
 
 function setLoad(p) {
-  loaderFill.style.width = `${Math.round(p * 100)}%`;
+  if (loaderFill) loaderFill.style.width = `${Math.round(p * 100)}%`;
 }
 
-const renderer = new THREE.WebGLRenderer({
-  canvas,
-  antialias: true,
-  powerPreference: 'high-performance',
-  alpha: false,
-  stencil: false,
-  depth: true,
-});
-// Cap DPR for stable 60fps on retina
-renderer.setPixelRatio(Math.min(window.devicePixelRatio, 1.5));
-renderer.setSize(window.innerWidth, window.innerHeight);
-renderer.shadowMap.enabled = true;
-renderer.shadowMap.type = THREE.PCFShadowMap; // cheaper than PCFSoft
-renderer.toneMapping = THREE.ACESFilmicToneMapping;
-renderer.toneMappingExposure = 1.05;
-renderer.outputColorSpace = THREE.SRGBColorSpace;
-// Don't auto-clear unnecessarily
-renderer.info.autoReset = true;
+/**
+ * Try WebGL configs from preferred → more compatible.
+ * First attempt keeps high-performance + antialias so machines that already
+ * work well stay on the discrete GPU when available. Fallbacks only run if
+ * that fails (dual-GPU glitches, software path, etc.).
+ * Returns { renderer, canvas } — canvas may be replaced after failed attempts.
+ */
+function createRenderer(startCanvas) {
+  const attempts = [
+    {
+      antialias: true,
+      powerPreference: 'high-performance',
+      failIfMajorPerformanceCaveat: false,
+    },
+    {
+      antialias: true,
+      powerPreference: 'default',
+      failIfMajorPerformanceCaveat: false,
+    },
+    {
+      antialias: false,
+      powerPreference: 'default',
+      failIfMajorPerformanceCaveat: false,
+    },
+    {
+      antialias: false,
+      powerPreference: 'low-power',
+      failIfMajorPerformanceCaveat: false,
+    },
+  ];
+  let lastError = null;
+  // Fresh canvas per attempt: a failed getContext can "poison" the element.
+  let canvasEl = startCanvas;
+  for (let i = 0; i < attempts.length; i++) {
+    const opts = attempts[i];
+    if (i > 0) {
+      const next = document.createElement('canvas');
+      next.id = canvasEl.id || 'c';
+      canvasEl.replaceWith(next);
+      canvasEl = next;
+    }
+    try {
+      const r = new THREE.WebGLRenderer({
+        canvas: canvasEl,
+        alpha: false,
+        stencil: false,
+        depth: true,
+        ...opts,
+      });
+      if (r.getContext()) return { renderer: r, canvas: canvasEl };
+      r.dispose();
+    } catch (err) {
+      lastError = err;
+    }
+  }
+  throw lastError || new Error('WebGL unavailable');
+}
 
-const scene = new THREE.Scene();
-scene.background = new THREE.Color(0x87b0d0);
+function isSoftwareGL(renderer) {
+  try {
+    const gl = renderer.getContext();
+    const info = renderer.extensions?.get?.('WEBGL_debug_renderer_info');
+    if (!info) return false;
+    const name = String(gl.getParameter(info.UNMASKED_RENDERER_WEBGL) || '');
+    return /swiftshader|llvmpipe|softpipe|microsoft basic render|software/i.test(
+      name,
+    );
+  } catch {
+    return false;
+  }
+}
 
-const camera = new THREE.PerspectiveCamera(
-  55,
-  window.innerWidth / window.innerHeight,
-  0.5,
-  600,
-);
+function showWebGLError(err) {
+  console.error(err);
+  const isMac = /Mac|iPhone|iPad/.test(navigator.platform || navigator.userAgent);
+  const isWin = /Win/.test(navigator.platform || navigator.userAgent);
+  const steps = isMac
+    ? [
+        'Abra o Chrome/Edge → <strong>Configurações → Sistema</strong>',
+        'Ative <strong>“Usar aceleração de hardware quando disponível”</strong>',
+        'Reinicie o navegador e recarregue esta página',
+      ]
+    : isWin
+      ? [
+          'Chrome/Edge → <strong>Configurações → Sistema</strong>',
+          'Ative <strong>“Usar aceleração de hardware quando disponível”</strong>',
+          'Atualize o driver da placa de vídeo (ou tente outro navegador)',
+          'Reinicie o navegador e recarregue esta página',
+        ]
+      : [
+          'Nas configurações do navegador, ative <strong>aceleração de hardware</strong>',
+          'Atualize o driver da GPU, se possível',
+          'Tente Chrome, Firefox ou Edge atualizados',
+        ];
 
-const gameCam = new GameCamera(camera, canvas);
-const lighting = new LightingSystem(scene, renderer);
+  loaderEl.classList.remove('done');
+  loaderEl.innerHTML = `
+    <div class="loader-inner webgl-error">
+      <div class="loader-skyline" aria-hidden="true"></div>
+      <h1>WebGL indisponível</h1>
+      <p>
+        Esta visualização 3D precisa de <strong>WebGL</strong> no navegador.
+        No seu dispositivo o contexto gráfico está desligado
+        (comum com aceleração de hardware desativada).
+      </p>
+      <ol>
+        ${steps.map((s) => `<li>${s}</li>`).join('')}
+      </ol>
+      <p class="webgl-error-note">
+        Sites não conseguem religar o WebGL sozinhos — isso é uma opção do
+        navegador/sistema. Depois de ativar, esta página funciona sem passos extras.
+      </p>
+      <button type="button" class="webgl-retry" id="webgl-retry">Tentar de novo</button>
+    </div>
+  `;
+  document.getElementById('webgl-retry')?.addEventListener('click', () => {
+    window.location.reload();
+  });
+}
+
+let renderer;
+let scene;
+let camera;
+let gameCam;
+let lighting;
+
+try {
+  ({ renderer, canvas } = createRenderer(canvas));
+  // Cap DPR for stable 60fps on retina; software GL stays lighter
+  const soft = isSoftwareGL(renderer);
+  renderer.setPixelRatio(Math.min(window.devicePixelRatio, soft ? 1 : 1.5));
+  renderer.setSize(window.innerWidth, window.innerHeight);
+  renderer.shadowMap.enabled = !soft;
+  renderer.shadowMap.type = THREE.PCFShadowMap;
+  renderer.toneMapping = THREE.ACESFilmicToneMapping;
+  renderer.toneMappingExposure = 1.05;
+  renderer.outputColorSpace = THREE.SRGBColorSpace;
+  renderer.info.autoReset = true;
+
+  scene = new THREE.Scene();
+  scene.background = new THREE.Color(0x87b0d0);
+
+  camera = new THREE.PerspectiveCamera(
+    55,
+    window.innerWidth / window.innerHeight,
+    0.5,
+    600,
+  );
+
+  gameCam = new GameCamera(camera, canvas);
+  lighting = new LightingSystem(scene, renderer);
+} catch (err) {
+  showWebGLError(err);
+}
 
 // ─── State ───────────────────────────────────────────────────
 const state = {
@@ -393,7 +516,10 @@ function update(dt) {
 }
 
 // ─── Go ──────────────────────────────────────────────────────
-init().catch((err) => {
-  console.error(err);
-  loaderEl.querySelector('p').textContent = 'Erro ao carregar. Veja o console.';
-});
+if (renderer) {
+  init().catch((err) => {
+    console.error(err);
+    const p = loaderEl.querySelector('p');
+    if (p) p.textContent = 'Erro ao carregar. Veja o console.';
+  });
+}

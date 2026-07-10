@@ -421,6 +421,55 @@ body,
   border-radius: 999px;
 }
 
+.webgl-error {
+  width: min(420px, 88vw);
+  text-align: left;
+}
+.webgl-error h1 {
+  font-size: 1.15rem;
+  font-weight: 650;
+  margin: 0 0 10px;
+  color: var(--ui-text);
+}
+.webgl-error p {
+  font-size: 13.5px;
+  line-height: 1.5;
+  color: var(--ui-muted);
+  margin-bottom: 12px;
+}
+.webgl-error ol {
+  margin: 0 0 14px 1.15rem;
+  padding: 0;
+  color: var(--ui-text);
+  font-size: 13.5px;
+  line-height: 1.55;
+}
+.webgl-error li {
+  margin-bottom: 6px;
+}
+.webgl-error-note {
+  font-size: 12px !important;
+  opacity: 0.85;
+}
+.webgl-retry {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  margin-top: 4px;
+  padding: 10px 16px;
+  border: 1px solid var(--ui-border);
+  border-radius: 999px;
+  background: rgba(94, 234, 212, 0.14);
+  color: var(--ui-accent);
+  font: inherit;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+}
+.webgl-retry:hover {
+  background: rgba(94, 234, 212, 0.24);
+}
+
 @media (max-width: 720px) {
   .brand-name {
     display: none;
