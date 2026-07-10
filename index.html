@@ -1,0 +1,81 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>InflaCidade — IPCA em 3D</title>
+    <meta name="description" content="Visualização 3D interativa da inflação brasileira (IPCA/IBGE) como um mundo-cidade." />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link href="https://fonts.googleapis.com/css2?family=DM+Sans:ital,opsz,wght@0,9..40,400;0,9..40,500;0,9..40,600;0,9..40,700;1,9..40,400&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet" />
+    <link rel="stylesheet" href="/src/styles.css" />
+  </head>
+  <body>
+    <div id="app">
+      <canvas id="c"></canvas>
+
+      <!-- Minimal immersive HUD -->
+      <div id="hud">
+        <div class="hud-top">
+          <div class="brand" title="Fonte: IBGE/SIDRA — IPCA">
+            <span class="brand-mark">◆</span>
+            <span class="brand-name">InflaCidade</span>
+          </div>
+
+          <div class="hud-cluster">
+            <div class="seg" id="city-seg" role="group" aria-label="Cidade">
+              <button type="button" data-city="groups" class="active">Grupos</button>
+              <button type="button" data-city="items">Selecionados</button>
+            </div>
+            <div class="seg" id="time-seg" role="group" aria-label="Horário">
+              <button type="button" data-time="morning">Manhã</button>
+              <button type="button" data-time="afternoon" class="active">Tarde</button>
+              <button type="button" data-time="night">Noite</button>
+            </div>
+            <div class="seg" id="mode-seg" role="group" aria-label="Modo de altura">
+              <button type="button" data-mode="cumulative" class="active" title="Acumulado desde a base">Σ base</button>
+              <button type="button" data-mode="rolling12" title="Variação em 12 meses">12 meses</button>
+            </div>
+            <button type="button" id="btn-reset" class="icon-btn" title="Resetar câmera">⟲</button>
+          </div>
+        </div>
+
+        <div class="hud-bottom">
+          <div class="timeline" id="timeline">
+            <span class="tl-bound" id="tl-min">jul/2006</span>
+            <input type="range" id="tl-slider" min="0" max="100" value="100" step="1" />
+            <span class="tl-bound" id="tl-max">mai/2026</span>
+            <div class="tl-now" id="tl-now">mai/2026</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Hover tooltip -->
+      <div id="tooltip" class="hidden"></div>
+
+      <!-- Building detail card -->
+      <div id="card" class="hidden">
+        <button type="button" id="card-close" aria-label="Fechar">×</button>
+        <div class="card-theme" id="card-theme"></div>
+        <h2 id="card-name">—</h2>
+        <div class="card-pct" id="card-pct">—</div>
+        <div class="card-meta">
+          <div><span class="k">Andares</span><span class="v" id="card-floors">—</span></div>
+          <div><span class="k">Período</span><span class="v" id="card-range">—</span></div>
+          <div><span class="k">Última var.</span><span class="v" id="card-last">—</span></div>
+          <div><span class="k">12 meses</span><span class="v" id="card-r12">—</span></div>
+        </div>
+      </div>
+
+      <!-- Loading -->
+      <div id="loader">
+        <div class="loader-inner">
+          <div class="loader-skyline"></div>
+          <p>Construindo a Cidade da Inflação…</p>
+          <div class="loader-bar"><div id="loader-fill"></div></div>
+        </div>
+      </div>
+    </div>
+    <script type="module" src="/src/main.js"></script>
+  </body>
+</html>
